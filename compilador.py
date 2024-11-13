@@ -110,6 +110,8 @@ class Parser:
             
             for i in range(value):
                 print("contagem...", i+1)  # Imprime o valor avaliado.
+
+            print()
             
         except:
             raise('Erro ao executar o for')
@@ -213,6 +215,9 @@ def execute_user_code():
         elif line.strip().lower() == 'cls':
             os.system('cls')
             print("Digite seu código. Para compilar e ver o resultado, digite 'compilar'. Para encerrar, digite 'sair'.Para limpar digite 'cls'\n")
+        elif line.strip().lower() == 'excluir':
+            for i in code_lines:
+                code_lines.pop()
         else:
             # Adiciona a linha ao código.
             code_lines.append(line)
