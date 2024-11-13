@@ -1,173 +1,352 @@
-import re #importa a biblioteca de expressões regulares
+import re
 import os
 
-# Dicionário com os padrões de tokens.
-# Cada token representa uma palavra reservada ou tipo de valor reconhecido pelo interpretador.
 TOKENS = {
-    'LET': r'\blet\b',            # Palavra reservada para declaração de variável.
-    'PRINT': r'\bprint\b',        # Palavra reservada para exibir valores.
-    'IF': r'\bif\b',              # Palavra reservada para estrutura condicional.
-    'ELSE': r'\belse\b',          # Palavra reservada para bloco 'else' da condição.
-    'FOR': r'\bfor\b',
-    'END': r'\bend\b',            # Palavra reservada para fim de blocos de código condicional.
-    'NUMBER': r'\b\d+\b',         # Números inteiros.
-    'IDENTIFIER': r'\b[a-zA-Z_][a-zA-Z0-9_]*\b',  # Identificadores de variáveis.
-    'OPERATOR': r'[+\-*/^]',       # Operadores matemáticos.
-    'COMPARISON': r'[><=]+',      # Operadores de comparação.
+    'FOR': r'\bfor\b',  
+    'IN': r'\bin\b',    
+    'LET': r'\blet\b',
+    'PRINT': r'\bprint\b',
+    'INPUT': r'\binput\b',
+    'IF': r'\bif\b',
+    'ELSE': r'\belse\b',
+    'WHILE': r'\bwhile\b',
+    'DO': r'\bdo\b',
+    'FUNCTION': r'\bfunction\b',
+    'RETURN': r'\breturn\b',
+    'END': r'\bend\b',
+    'NUMBER': r'\b\d+\b',
+    'LOGICAL': r'\b(and|or|not)\b',
+    'IDENTIFIER': r'\b[a-zA-Z_][a-zA-Z0-9_]*\b',
+    'OPERATOR': r'[+\-*/^]',
+    'COMPARISON': r'[><=]+',
+    'COMMA': r',',
+    'OPEN_PAREN': r'\(',
+    'CLOSE_PAREN': r'\)',
+    'LIST_START': r'\[',
+    'LIST_END': r'\]',
 }
 
-# Função lexer: converte o código do usuário em uma lista de tokens para serem processados pelo parser.
 def lexer(code):
     tokens = []
-    code = code.strip()  # Remove espaços no início e no final do código.
-    while code:  # Continua enquanto houver código não processado.
+    code = code.strip()
+    while code:
         match = None
         for token_type, pattern in TOKENS.items():
             regex = re.compile(pattern)
-            match = regex.match(code)  # Verifica se há correspondência com algum token.
+            match = regex.match(code)
             if match:
-                # Adiciona o token encontrado à lista.
-                tokens.append((token_type, match.group(0)))
-                # Remove o token encontrado do código para continuar o processamento.
-                code = code[match.end():].strip()
+                token = (token_type, match.group(0))
+                tokens.append(token)
+                print(f"Token encontrado: {token}")  # Debug print
+                code = code[match.end():]
+                code = code.strip()
                 break
         if not match:
-            # Caso não encontre um token, gera um erro de sintaxe.
             raise SyntaxError(f"Token desconhecido: {code[:10]}")
     return tokens
 
-# Classe Parser: analisa e executa os tokens gerados pelo lexer.
 class Parser:
     def __init__(self, tokens):
-        self.tokens = tokens      # Lista de tokens para processar.
-        self.position = 0         # Posição atual no array de tokens.
-        self.variables = {}       # Dicionário para armazenar variáveis e seus valores.
+        self.tokens = tokens
+        self.position = 0
+        self.variables = {}
+        self.functions = {}
+        self.return_value = None
+        self.in_function = False
 
-    def parse(self):
-        try:
-            # Itera através dos tokens, identificando e processando comandos.
-            while self.position < len(self.tokens):
-                token_type, value = self.tokens[self.position]
-                if token_type == 'LET':
-                    self.parse_let()   # Chama função para processar declaração de variável.
-                elif token_type == 'PRINT':
-                    self.parse_print()  # Chama função para processar comando de impressão.
-                elif token_type == 'IF':
-                    self.parse_if()     # Chama função para processar a estrutura condicional.
-                elif token_type == 'FOR':
-                    self.parse_for() 
-        except IndexError as e:
-            raise IndexError(f'Erro ao executar a função: {e}')
- 
-
-    def parse_let(self):
-        # Processa uma declaração de variável.
+    def parse_end(self):
         self.position += 1
-        var_name = self.tokens[self.position][1]  # Nome da variável.
+
+    def parse(self):  
+        while self.position < len(self.tokens):
+            token_type, value = self.tokens[self.position]
+            if token_type == 'LET':
+                self.parse_let()
+            elif token_type == 'PRINT':
+                self.parse_print()
+            elif token_type == 'INPUT':
+                self.parse_input()
+            elif token_type == 'IF':
+                self.parse_if()
+            elif token_type == 'WHILE':
+                self.parse_while()
+            elif token_type == 'FUNCTION':
+                self.parse_function()
+            elif token_type == 'FOR':
+                self.parse_for()
+            elif token_type == 'RETURN':
+                if self.in_function:
+                    self.parse_return()
+                else:
+                    raise SyntaxError("Comando 'return' fora de uma função")
+            elif token_type == 'IDENTIFIER':
+                next_token = self.tokens[self.position + 1] if self.position + 1 < len(self.tokens) else (None, None)
+                if next_token[0] == 'OPEN_PAREN':
+                    self.parse_function_call(value)
+                elif next_token[1] == '=':
+                    self.parse_assignment()
+                else:
+                    raise SyntaxError(f"Comando inválido: {value}")
+            elif token_type == 'END':
+                if self.in_function:
+                    self.position += 1
+                    break
+                else:
+                    self.parse_end()
+            else:
+                raise SyntaxError(f"Comando inválido: {value}")
+            
+    def parse_let(self):
+        self.position += 1
+        var_name = self.tokens[self.position][1]
         self.position += 1
         if self.position >= len(self.tokens) or self.tokens[self.position][1] != '=':
-            # Erro se não encontrar um operador de atribuição após o nome da variável.
             raise SyntaxError("Erro de sintaxe em declaração de variável")
         self.position += 1
-        value = self.evaluate_expression()  # Avalia a expressão à direita do '='.
-        self.variables[var_name] = value    # Armazena o valor da variável.
+        value = self.evaluate_expression()
+        self.variables[var_name] = value
 
     def parse_print(self):
+        self.position += 1
+        value = self.evaluate_expression()
+        print("Saída:", value)
+
+    def parse_input(self):
+        self.position += 1
+        var_name = self.tokens[self.position][1]
+        self.position += 1
+        user_input = input("Entrada: ")
         try:
-            # Processa um comando para exibir valores.
-            self.position += 1
-            value = self.evaluate_expression()  # Avalia a expressão a ser exibida.
-            print("Saída:", value)  # Imprime o valor avaliado.
-        except IndexError as e:
-            raise IndexError('Erro ao digitar a função print')
+            self.variables[var_name] = int(user_input)
+        except ValueError:
+            raise SyntaxError("Entrada inválida: esperado um número inteiro.")
 
     def parse_if(self):
-        try:
-            # Processa uma estrutura condicional.
+        self.position += 1  # Pula o token 'IF'
+        
+        # Coleta os tokens da condição até encontrar um token que indica o início do bloco
+        condition_tokens = []
+        while self.position < len(self.tokens) and self.tokens[self.position][0] not in ('LET', 'PRINT', 'INPUT', 'IF', 'ELSE', 'WHILE', 'DO', 'FUNCTION', 'RETURN', 'END'):
+            condition_tokens.append(self.tokens[self.position])
             self.position += 1
-            condition = self.evaluate_condition()  # Avalia a condição do 'if'.
-            if condition:
+        
+        # Avalia a condição usando um sub-parser
+        condition_parser = Parser(condition_tokens)
+        condition_parser.variables = self.variables.copy()
+        condition_parser.functions = self.functions
+        condition_result = condition_parser.evaluate_condition()
+        
+        if condition_result:
+            # Executa o bloco 'if'
+            if self.position < len(self.tokens) and self.tokens[self.position][0] == 'END':
                 self.position += 1
-                self.parse()  # Executa o bloco 'if' se a condição for verdadeira.
-            else:
-                # Pula o bloco 'if' até encontrar 'else' ou 'end'.
-                while self.tokens[self.position][0] != 'ELSE' and self.tokens[self.position][0] != 'END':
-                    self.position += 1
-                if self.tokens[self.position][0] == 'ELSE':
-                    self.position += 1
-                    self.parse()  # Executa o bloco 'else' se encontrado.
-            # Finaliza a execução do bloco 'if' ao encontrar 'end'.
-            while self.tokens[self.position][0] != 'END':
+                return
+            self.parse()
+        else:
+            # Pula o bloco 'if' até encontrar 'ELSE' ou 'END'
+            while self.position < len(self.tokens) and self.tokens[self.position][0] not in ('ELSE', 'END'):
                 self.position += 1
-        except:
-            raise('Erro no parse_if')
-
-    def parse_for(self):
-        try:
-            # Processa um comando para exibir valores.
+            if self.position < len(self.tokens) and self.tokens[self.position][0] == 'ELSE':
+                self.position += 1
+                self.parse()
+        
+        # Pula o token 'END'
+        if self.position < len(self.tokens) and self.tokens[self.position][0] == 'END':
             self.position += 1
-            value = self.evaluate_expression()  # Avalia a expressão a ser exibida.
+
+    def parse_while(self):
+        self.position += 1
+        condition_tokens = []
+        
+        # Coleta os tokens da condição até encontrar 'DO' ou um comando
+        while self.position < len(self.tokens):
+            current_token = self.tokens[self.position][0]
+            if current_token == 'DO':
+                self.position += 1  # Pula o 'DO' se existir
+                break
+            elif current_token in ('LET', 'PRINT', 'INPUT', 'IF', 'ELSE', 'WHILE', 'FUNCTION', 'RETURN'):
+                break
+            condition_tokens.append(self.tokens[self.position])
+            self.position += 1
+        
+        # Coleta os tokens do corpo do loop até encontrar 'END'
+        loop_body_tokens = []
+        while self.position < len(self.tokens) and self.tokens[self.position][0] != 'END':
+            loop_body_tokens.append(self.tokens[self.position])
+            self.position += 1
+        
+        if self.position >= len(self.tokens) or self.tokens[self.position][0] != 'END':
+            raise SyntaxError("Esperado 'end' para fechar o loop 'while'")
+        
+        self.position += 1  # Pula o token 'END'
+        
+        while True:
+            # Avalia a condição usando um sub-parser
+            condition_parser = Parser(condition_tokens)
+            condition_parser.variables = self.variables.copy()
+            condition_parser.functions = self.functions
+            condition_result = condition_parser.evaluate_condition()
             
-            for i in range(value):
-                print("contagem...", i+1)  # Imprime o valor avaliado.
-
-            print()
+            if not condition_result:
+                break
             
-        except:
-            raise('Erro ao executar o for')
+            # Executa o corpo do loop usando um sub-parser
+            loop_parser = Parser(loop_body_tokens)
+            loop_parser.variables = self.variables.copy()
+            loop_parser.functions = self.functions
+            loop_parser.parse()
+            self.variables.update(loop_parser.variables)
 
-    def parse_limpar(self):
-        ...
+    def parse_function(self):
+        self.position += 1
+        func_name = self.tokens[self.position][1]
+        self.position += 1
+        parameters = []
+    
+        if self.tokens[self.position][0] == 'OPEN_PAREN':
+            self.position += 1
+            while self.tokens[self.position][0] != 'CLOSE_PAREN':
+                if self.tokens[self.position][0] == 'IDENTIFIER':
+                    parameters.append(self.tokens[self.position][1])
+                    self.position += 1
+                    if self.tokens[self.position][0] == 'COMMA':
+                        self.position += 1
+                else:
+                    raise SyntaxError("Parâmetros inválidos na definição da função")
+            self.position += 1  # Pula ')'
+        else:
+            raise SyntaxError("Esperado '(' após o nome da função")
+    
+        func_body_tokens = []
+        while self.position < len(self.tokens) and self.tokens[self.position][0] != 'END':
+            func_body_tokens.append(self.tokens[self.position])
+            self.position += 1
+    
+        if self.position >= len(self.tokens) or self.tokens[self.position][0] != 'END':
+            raise SyntaxError("Esperado 'end' para fechar a função")
+    
+        self.position += 1  # Pula o token 'END'
+    
+        self.functions[func_name] = {
+            'parameters': parameters,
+            'body': func_body_tokens
+        }
 
+    def parse_return(self):
+        self.position += 1
+        self.return_value = self.evaluate_expression()
+        self.position = len(self.tokens)  # Interrompe a execução atual
+
+    def parse_function_call(self, func_name):
+        self.position += 1  # Pula o nome da função
+        args = []
+    
+        if self.tokens[self.position][0] == 'OPEN_PAREN':
+            self.position += 1  # Pula '('
+            while self.tokens[self.position][0] != 'CLOSE_PAREN':
+                arg = self.evaluate_expression()
+                args.append(arg)
+                if self.tokens[self.position][0] == 'COMMA':
+                    self.position += 1  # Pula ','
+            self.position += 1  # Pula ')'
+        else:
+            raise SyntaxError("Esperado '(' após o nome da função")
+    
+        if func_name not in self.functions:
+            raise NameError(f"Função não definida: {func_name}")
+    
+        function = self.functions[func_name]
+        if len(args) != len(function['parameters']):
+            raise SyntaxError("Número incorreto de argumentos na chamada da função")
+    
+        func_parser = Parser(function['body'])
+        func_parser.variables = self.variables.copy()
+        func_parser.functions = self.functions
+        func_parser.in_function = True
+    
+        for param, arg in zip(function['parameters'], args):
+            func_parser.variables[param] = arg
+    
+        func_parser.parse()
+    
+        return_value = func_parser.return_value
+    
+        return return_value
+
+    def parse_assignment(self):
+        var_name = self.tokens[self.position][1]
+        self.position += 1  # Pula o identificador
+        self.position += 1  # Pula o '='
+        value = self.evaluate_expression()
+        self.variables[var_name] = value
 
     def evaluate_expression(self):
-        try:
-            # Avalia uma expressão matemática.
-            left_value = self.get_term()  # Pega o primeiro termo.
-            # Processa operadores matemáticos.
-            while self.position < len(self.tokens) and self.tokens[self.position][0] == 'OPERATOR':
-                operator = self.tokens[self.position][1]
-                self.position += 1
-                right_value = self.get_term()  # Pega o próximo termo.
-                left_value = self.apply_operator(left_value, operator, right_value)  # Aplica o operador entre os termos.
-            return left_value
-        except IndexError:
-            raise IndexError('Index fora do contexto')
-
-    def get_term(self):
-        try:
-            # Retorna o valor de um termo (número ou variável).
-            token_type, value = self.tokens[self.position]
-            if token_type == 'NUMBER':
-                self.position += 1
-                return int(value)  # Retorna o número como inteiro.
-            elif token_type == 'IDENTIFIER':
-                try:
-                    self.position += 1
-                    # Retorna o valor da variável, se existir.
-                    if value in self.variables:
-                        return self.variables[value]
-                except NameError:
-                    raise NameError('Erro dado ao nome da variável')
-
-        except (NameError, SyntaxError) as e:
-            # Erro caso a variável não esteja definida.
-            print(f"Erro: {e}")
-
-    def evaluate_condition(self):
-        try:
-            # Avalia uma condição (comparação entre expressões).
-            left = self.evaluate_expression()  # Avalia a expressão à esquerda.
+        result = self.get_term()
+        while self.position < len(self.tokens) and \
+              self.tokens[self.position][0] in ('OPERATOR', 'LOGICAL', 'COMPARISON'):
             operator = self.tokens[self.position][1]
             self.position += 1
-            right = self.evaluate_expression()  # Avalia a expressão à direita.
-            return self.apply_operator(left, operator, right)
-        except:
-            raise('Erro no evaluate_condition')
+            right = self.get_term()
+            result = self.apply_operator(result, operator, right)
+        return result
+
+    def get_term(self):
+        token_type, value = self.tokens[self.position]
+        if token_type == 'LIST_START':
+            return self.parse_list()
+        elif token_type == 'NUMBER':
+            self.position += 1
+            return int(value)
+        elif token_type == 'IDENTIFIER':
+            next_token = self.tokens[self.position + 1] if self.position + 1 < len(self.tokens) else (None, None)
+            if next_token[0] == 'OPEN_PAREN':
+                result = self.parse_function_call(value)
+                return result
+            else:
+                self.position += 1
+                if value in self.variables:
+                    return self.variables[value]
+                else:
+                    raise NameError(f"Variável não definida: {value}")
+        elif token_type == 'OPEN_PAREN':
+            self.position += 1
+            value = self.evaluate_expression()
+            if self.tokens[self.position][0] != 'CLOSE_PAREN':
+                raise SyntaxError("Esperado ')' na expressão")
+            self.position += 1  # Pula ')'
+            return value
+        else:
+            raise SyntaxError(f"Expressão inválida: {value}")
+
+    def parse_list(self):
+        self.position += 1  # Skip '['
+        elements = []
+        
+        while self.position < len(self.tokens) and self.tokens[self.position][0] != 'LIST_END':
+            value = self.evaluate_expression()
+            elements.append(value)
+            
+            if self.position < len(self.tokens) and self.tokens[self.position][0] == 'COMMA':
+                self.position += 1
+        
+        if self.position >= len(self.tokens) or self.tokens[self.position][0] != 'LIST_END':
+            raise SyntaxError("Lista não fechada: esperado ']'")
+            
+        self.position += 1  # Skip ']'
+        return elements
+
+    def evaluate_condition(self):
+        return self.evaluate_expression()
 
     def apply_operator(self, left, operator, right):
-        # Aplica o operador aritmético ou comparativo.
         if operator == '+':
+            if isinstance(left, list) or isinstance(right, list):
+                if isinstance(left, list) and isinstance(right, list):
+                    return left + right
+                elif isinstance(left, list):
+                    return left + [right]
+                else:
+                    return [left] + right
             return left + right
         elif operator == '-':
             return left - right
@@ -183,44 +362,187 @@ class Parser:
             return left < right
         elif operator == '==':
             return left == right
+        elif operator == 'and':
+            return left and right
+        elif operator == 'or':
+            return left or right
+        elif operator == 'not':
+            return not right
         else:
-            # Erro para operadores não reconhecidos.
             raise SyntaxError(f"Operador desconhecido: {operator}")
 
-# Função para execução do código do usuário com opção de compilar e corrigir erros.
+    def parse_for(self):
+        self.position += 1  # Pula 'for'
+        
+        # Pega o nome da variável de iteração
+        if self.tokens[self.position][0] != 'IDENTIFIER':
+            raise SyntaxError("Esperado um identificador após 'for'")
+        iterator_var = self.tokens[self.position][1]
+        self.position += 1
+        
+        # Verifica a palavra 'in'
+        if self.tokens[self.position][0] != 'IN':
+            raise SyntaxError("Esperado 'in' após o identificador no laço for")
+        self.position += 1
+        
+        # Avalia a expressão que gera a sequência (lista)
+        sequence = self.evaluate_expression()
+        if not isinstance(sequence, list):
+            raise TypeError("For precisa de uma lista para iterar")
+        
+        # Coleta os tokens do corpo do loop até encontrar 'END'
+        loop_body_tokens = []
+        while self.position < len(self.tokens) and self.tokens[self.position][0] != 'END':
+            loop_body_tokens.append(self.tokens[self.position])
+            self.position += 1
+        
+        if self.position >= len(self.tokens) or self.tokens[self.position][0] != 'END':
+            raise SyntaxError("Esperado 'end' para fechar o laço 'for'")
+        
+        self.position += 1  # Pula o token 'END'
+        
+        # Executa o corpo do loop para cada elemento da sequência
+        for item in sequence:
+            # Cria um novo parser para cada iteração
+            loop_parser = Parser(loop_body_tokens)
+            loop_parser.variables = self.variables.copy()
+            loop_parser.functions = self.functions
+            
+            # Define a variável de iteração
+            loop_parser.variables[iterator_var] = item
+            
+            # Executa o corpo do loop
+            loop_parser.parse()
+            
+            # Atualiza as variáveis do escopo externo
+            self.variables.update(loop_parser.variables)
+
+def suggest_correction(error_message, code_lines):
+    suggestion = {
+        "Token desconhecido": "Verifique a sintaxe do seu código.",
+        "Erro de sintaxe em declaração de variável": "Certifique-se de usar 'let' para declarar variáveis e '=' para atribuir valores.",
+        "Variável não definida": "Verifique se a variável foi declarada antes de usá-la.",
+        "Função não definida": "Verifique se a função foi declarada antes de chamá-la.",
+        "Expressão inválida": "Verifique a expressão para garantir que está correta.",
+        "Operador desconhecido": "Use operadores válidos como +, -, *, /, >, <, ==, and, or, not.",
+        "Esperado 'do' após a condição 'while'": "Inclua 'do' após a condição do 'while'.",
+        "Esperado 'end' para fechar o loop 'while'": "Certifique-se de fechar o loop 'while' com 'end'.",
+        "Parâmetros inválidos na definição da função": "Verifique a lista de parâmetros na definição da função.",
+        "Esperado '(' após o nome da função": "Inclua '(' após o nome da função.",
+        "Número incorreto de argumentos na chamada da função": "Verifique o número de argumentos ao chamar a função.",
+        "Entrada inválida: esperado um número inteiro.": "Certifique-se de inserir um número inteiro válido.",
+        "Lista não fechada: esperado ']'": "Certifique-se de fechar a lista com ']'.",
+    }
+    for error, suggestion_text in suggestion.items():
+        if error in error_message:
+            return suggestion_text
+    return "Corrija o erro no código."
+
+def export_error(filename, error_message, code_lines):
+    with open(filename, 'w') as file:
+        file.write(f"Erro: {error_message}\n")
+        file.write("Código com erro:\n")
+        for i, line in enumerate(code_lines, start=1):
+            file.write(f"{i}: {line}\n")
+
+def save_file(filename, code_lines):
+    with open(filename, 'w') as file:
+        file.write("\n".join(code_lines))
+
+def open_file(filename):
+    with open(filename, 'r') as file:
+        return file.readlines()
+
+def limpar_console():
+    os.system('cls')
+    print("Digite seu código. Para compilar e ver o resultado, digite 'compilar'. Para encerrar, digite 'sair'.\n")
+    print("Para salvar o código, digite 'salvar <nome_do_arquivo>'. Para abrir um arquivo, digite 'abrir <nome_do_arquivo>'.\n")
+    print("Para desfazer a última ação, digite 'desfazer'. Para refazer a última ação desfeita, digite 'refazer'.\n")
+    print("Para limpar o console, digite cls. Para excluir o código feito, digite excluir'.\n")
+
 def execute_user_code():
-    print("Digite seu código. Para compilar e ver o resultado, digite 'compilar'. Para encerrar, digite 'sair'.Para limpar digite 'cls'\n")
-    code_lines = []  # Armazena as linhas digitadas pelo usuário.
+    print("Digite seu código. Para compilar e ver o resultado, digite 'compilar'. Para encerrar, digite 'sair'.\n")
+    print("Para salvar o código, digite 'salvar <nome_do_arquivo>'. Para abrir um arquivo, digite 'abrir <nome_do_arquivo>'.\n")
+    print("Para desfazer a última ação, digite 'desfazer'. Para refazer a última ação desfeita, digite 'refazer'.\n")
+    print("Para limpar o console, digite cls. Para excluir o código feito, digite excluir'.\n")
+
+    code_lines = []
+    undo_stack = []
+    redo_stack = []
+
+    def undo():
+        if code_lines:
+            last_action = code_lines.pop()
+            undo_stack.append(last_action)
+            print("Ação desfeita.")
+        else:
+            print("Não há ações para desfazer.")
+
+    def redo():
+        if undo_stack:
+            last_undo = undo_stack.pop()
+            code_lines.append(last_undo)
+            print("Ação refeita.")
+        else:
+            print("Não há ações para refazer.")
+
     while True:
         line = input(">>> ")
         if line.strip().lower() == 'sair':
             break
         elif line.strip().lower() == 'compilar':
-            code = "\n".join(code_lines)  # Junta todas as linhas para compilar.
+            if not code_lines:
+                print('Não há código para se executar')
+            code = "\n".join(code_lines)
             try:
-                tokens = lexer(code)  # Gera os tokens a partir do código.
-                parser = Parser(tokens)  # Cria o parser com os tokens.
-                parser.parse()  # Processa e executa os tokens.
+                tokens = lexer(code)
+                parser = Parser(tokens)
+                parser.parse()
             except (SyntaxError, NameError) as e:
                 erro_msg = str(e)
                 print(f"Erro: {erro_msg}")
-                # Exibe a última linha com erro para facilitar a correção.
                 linha_erro = len(code_lines)
-                print(f"Erro na linha {linha_erro}: {code_lines[linha_erro-1]}")
-                # Permite ao usuário corrigir a linha com erro.
+                if linha_erro > 0:
+                    print(f"Erro na linha {linha_erro}: {code_lines[linha_erro-1]}")
+                sugestao = suggest_correction(erro_msg, code_lines)
+                print(f"Sugestão: {sugestao}")
                 corrigir = input("Deseja corrigir a linha? (s/n): ").strip().lower()
                 if corrigir == 's':
                     nova_linha = input("Digite a linha corrigida: ")
-                    code_lines[linha_erro-1] = nova_linha  # Atualiza a linha corrigida.
+                    if 0 < linha_erro <= len(code_lines):
+                        code_lines[linha_erro-1] = nova_linha
+                exportar = input("Deseja exportar o erro para um arquivo? (s/n): ").strip().lower()
+                if exportar == 's':
+                    nome_arquivo = input("Digite o nome do arquivo para exportar o erro: ")
+                    export_error(nome_arquivo, erro_msg, code_lines)
+                    print(f"Erro exportado para o arquivo {nome_arquivo}.")
+        elif line.strip().lower().startswith('salvar '):
+            filename = line.strip().split(' ', 1)[1]
+            save_file(filename, code_lines)
+            print(f"Arquivo {filename} salvo com sucesso.")
+        elif line.strip().lower().startswith('abrir '):
+            filename = line.strip().split(' ', 1)[1]
+            try:
+                code_lines = open_file(filename)
+                print(f"Arquivo {filename} aberto com sucesso.")
+                for i, code_line in enumerate(code_lines):
+                    print(f"{i+1}: {code_line.strip()}")
+            except FileNotFoundError:
+                print(f"Arquivo {filename} não encontrado.")
+        elif line.strip().lower() == 'desfazer':
+            undo()
+        elif line.strip().lower() == 'refazer':
+            redo()
         elif line.strip().lower() == 'cls':
-            os.system('cls')
-            print("Digite seu código. Para compilar e ver o resultado, digite 'compilar'. Para encerrar, digite 'sair'.Para limpar digite 'cls'\n")
+            limpar_console()
         elif line.strip().lower() == 'excluir':
-            for i in code_lines:
-                code_lines.pop()
+            if not code_lines:
+                print('Não há código para limpar')
+            else:
+                code_lines.clear()
+                print('Código excluido com sucesso')
         else:
-            # Adiciona a linha ao código.
             code_lines.append(line)
+            undo_stack.clear()
 
-# Executa o código interativo
 execute_user_code()
