@@ -454,11 +454,11 @@ def open_file(filename):
         return file.readlines()
 
 def limpar_console():
-    os.system('cls')
+    os.system('clear')
     print("Digite seu código. Para compilar e ver o resultado, digite 'compilar'. Para encerrar, digite 'sair'.\n")
     print("Para salvar o código, digite 'salvar <nome_do_arquivo>'. Para abrir um arquivo, digite 'abrir <nome_do_arquivo>'.\n")
     print("Para desfazer a última ação, digite 'desfazer'. Para refazer a última ação desfeita, digite 'refazer'.\n")
-    print("Para limpar o console, digite cls. Para excluir o código feito, digite excluir'.\n")
+    print("Para limpar o console, digite 'clear'. Para excluir o código feito, digite excluir'.\n")
 
 def execute_user_code():
     print("Digite seu código. Para compilar e ver o resultado, digite 'compilar'. Para encerrar, digite 'sair'.\n")
@@ -533,7 +533,7 @@ def execute_user_code():
             undo()
         elif line.strip().lower() == 'refazer':
             redo()
-        elif line.strip().lower() == 'cls':
+        elif line.strip().lower() == 'clear':
             limpar_console()
         elif line.strip().lower() == 'excluir':
             if not code_lines:
